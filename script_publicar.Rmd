@@ -1,0 +1,887 @@
+---
+title: "publication"
+author: "Juan David Marin"
+date: "2023-06-28"
+output: html_notebook
+runtime: shiny
+---
+
+```{r}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(comment = '')
+knitr::opts_chunk$set(message=FALSE)
+knitr::opts_chunk$set(eval = T)
+```
+
+```{r}
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(tidyselect)
+library(tibble)
+library(rstatix)
+library(FactoMineR)
+library(factoextra)
+library(DT)
+library(patchwork)
+library(shiny)
+library(ggstatsplot)
+library(plotly)
+```
+
+Sometime when you measure your own variables, it is very helpful make the correlation among them.
+Imagine that you are working in a study about samples sold in the market to compare them with the products that your company manufactures and improve the company competitiveness.
+So, you have many options to analyze the problem, One of them is to gather some products from your company and the competing market and conduct user tests with consumers, carry out market studies, or perform physicochemical analysis in the laboratory to establish their physicochemical behavior and formulation efficiency.
+In my experience as a scientist, I have worked on establishing these correlations that are of great interest in the industry because they establish quick and cost-effective diagnostic parameters that enable data-driven decision-making
+
+<i>A vital part of these projects is to have analytical skills using tools like Python or R. Both software options are appropriate for this work as they facilitate statistical analysis and machine learning. Therefore, I will choose R as my ally software for this example. (Personally, I feel more comfortable conducting statistical analyses with R, while I prefer using Python for other tasks)</i>
+
+In the example of this publication, I will work with simulated data of physicochemical variables obtained through different methodologies of instrumental chemical analysis for samples of products X manufactured by company A and products from the same line present in the market.
+
+
+
+
+```{r warning=F, error=FALSE, }
+data <- read.csv('brand_study.csv', sep = ';', dec = '.', header = T, stringsAsFactors = T)
+data <- column_to_rownames(data, var = 'sample')
+head(data)
+```
+
+So, the data consists of 29 X products with 10 numeric variables and 2 categorical variables.
+The numerical variables are related to physicochemical measures in the lab, such as Rheology, Texture, LUM, DSC, HPLC, GCSMD, etc.
+The 'class' categorical variable indicates whether the product is manufactured by company A (Market_1) or by other markets (Market_2).
+The other categorical variable, 'brand,' represents the name of the manufacturing company
+
+First, we will start with some basic statistics
+
+## Mean and Standard deviation
+
+```{r}
+data %>% 
+  dplyr::select_if(is.numeric) %>% 
+  gather(key = 'var', value = 'values') %>% 
+  group_by(var) %>% 
+  get_summary_stats(values, type='mean_sd') %>% 
+  dplyr::select(-variable) %>% 
+  DT::datatable()
+  
+```
+
+## Outliers
+
+```{r}
+data %>% 
+  dplyr::select_if(is.numeric) %>% 
+  gather(key = 'var', value = 'values') %>% 
+  group_by(var) %>% 
+  identify_outliers(values) %>% 
+  DT::datatable()
+```
+
+# **To determine if principal component analysis is appropriate.**
+
+## Correlation matrix
+
+```{r}
+library(GGally)
+# renderPlot(
+# data %>% 
+#   dplyr::select(-brand) %>% 
+#   ggpairs(columns = 1:10, progress = FALSE,aes(color=class))
+# )
+```
+
+**Is it appropriate to perform a PCA?**
+
+We can evaluate whether PCA is appropriate for analyzing the study data using the following 3 methods that analyze the correlation structure between the variables:
+
+• Bartlett's test of sphericity evaluates the nature of the correlations.
+If it is significant, it suggests that the variables are not an "identity matrix" where correlations occur due to sampling error.
+
+• The Kaiser-Meyer-Olkin (KMO) measure of sampling adequacy is based on the common variance.
+It assesses whether there is an appropriate number of observations relative to the number of variables being evaluated.
+There is an overall score and a score for each variable.
+It ranges from 0 (poor adequacy) to 1 (good adequacy).
+
+• Determinant positivity test evaluates multicollinearity.
+The result should preferably fall below 0.00001.
+
+**Bartlett's test**
+
+```{r}
+library(psych)
+data %>% 
+  dplyr::select_if(is.numeric) %>% 
+  cortest.bartlett()
+```
+
+For a significance level of 5%, we can say that the variables are not an identity matrix where correlations occur solely due to sampling error, as the p-value is less than 0.05.
+Therefore, following the Bartlett's test, it is appropriate to apply PCA.
+
+**Kaiser-Meyer-Olkin (KMO)**
+
+```{r}
+data %>% 
+  dplyr::select_if(is.numeric) %>% 
+  cor() %>% KMO()
+```
+
+This measure provides information on whether the variables are correlated with each other enough to be able to extract significant principal components.
+Variables with a value \<0.5 could be eliminated (variable var_A3), however, the overall KMO index value is 0.74, which is considered good.
+
+**Determinant positivity test evaluates multicollinearity**
+
+```{r}
+options(scipen = 100, digits = 6)
+data %>% 
+  dplyr::select_if(is.numeric) %>% 
+  cor() %>% 
+  det() 
+  
+```
+
+The determinant of the matrix is positive and very close to 0 (below 0.00001).
+
+# Performace a PCA algorithm
+
+The variables 'brand' and 'class' will be used as categorical supplementary variables
+
+```{r}
+res_pca <- data %>%
+  PCA(scale.unit = T, graph = F, quali.sup = c('brand', 'class'))
+summary(res_pca) 
+```
+
+The eigenvalues measure the amount of variation retained by each principal component.
+With 2 dimensions, we are retaining 90% of the variability in our data.
+
+**Quality of variable representation for each component.**
+
+```{r fig.height=5, fig.width=15}
+library(patchwork)
+renderPlot(
+fviz_cos2(res_pca, choice = 'var', axes = 1, fill = 'yellow')/fviz_contrib(res_pca, choice = 'var', axes = 1, fill = 'yellow') |
+fviz_cos2(res_pca, choice = 'var', axes = 2,fill = 'blue')/fviz_contrib(res_pca, choice = 'var', axes = 2, fill = 'blue')|
+fviz_pca_var(res_pca, repel = T,col.var =factor(c("var_A1","var_A2","var_A3","var_A4","var_A5","var_B1","var_B2","var_B3","var_B4","var_B5")),
+              legend.title = list(fill = "Col", color = "variables"), geom = c("arrow","text"))
+)
+```
+
+**cos2** represents the quality of representation for the variables in each PC.
+It corresponds to the squared value of the coordinates (coord\^2).
+**Contrib** represents the contribution (%) of the variable in each PC.
+It is calculated as the variable's quality divided by the total quality of the component (cos2/sum(cos2)).
+
+The angles (between variables or between variable and PC) can be understood as an indication of the correlation between them.
+The length of the arrow represents the magnitude of the correlation.
+
+We can observe the variables significantly associated with the 2 principal components based on their correlation values With a significance level of 95%.
+
+```{r}
+res_pca %>% 
+  dimdesc(axes = c(1,2), proba=0.05) 
+```
+
+**Quality and contribution of the representation of the individuals**
+
+```{r fig.height=5, fig.width=15}
+renderPlot(
+fviz_cos2(res_pca, choice = 'ind', axes = 1, fill = 'yellow',top = 15)/fviz_contrib(res_pca, choice = 'ind', axes = 1, fill = 'yellow',top = 15)|fviz_cos2(res_pca, choice = 'ind', axes = 2, fill = 'blue',top = 15)/fviz_contrib(res_pca, choice = 'ind', axes = 1, fill = 'blue',top = 15)|fviz_pca_ind(res_pca, repel = T, col.ind = data$class)
+)
+```
+
+• Individuals with average values in all variables will be placed at the center of the graph.
+Conversely, we expect individuals with extreme values to be far from the center.
+• Individuals with similar values (in the studied variables) will be grouped together on the map.
+Conversely, individuals with different profiles will be distant from each other.
+
+**Biplot**
+
+## Biplot relación
+
+```{r fig.height=6, fig.width=13}
+
+renderPlot(
+fviz_pca_biplot(res_pca, repel = T, habillage = 11,
+                fill.ind = data$class, 
+                pointshape = 21, pointsize = 2,
+             addEllipses =TRUE,
+             ellipse.alpha = 0.1,
+             ellipse.type = "confidence",
+             geom.ind =c('text',"point"),
+             geom.var = c("text", "arrow"),
+             alpha.var ="contrib",
+             col.var = 'black',
+             
+             legend.title = list(fill = "Class", color = "variables"),title = 'PCA BIPLOT')
+)
+```
+
+## **Cluster Analisys**
+
+The purpose of cluster analysis is to partition the dataset into groups of observations.
+\* Observations within the same group are as similar as possible \* observations in different groups are very different.
+Since the examples are unlabeled, clustering relies on unsupervised machine learning.
+It is an exploratory analysis technique for multivariate data involving multiple variables.
+
+Before conducting a cluster analysis, it is important to evaluate the clustering tendency of the data.
+There are statistical and visual methods to assess the clustering tendency: • Hopkins statistics: It evaluates whether the dataset exhibits a significant clustering structure or if it is random.
+• Visual Assessment of Tendency (VAT): It generates a heat map using distances between observations, rearranging the observations so that similar ones are placed close to each other.
+
+**Hopkins statistics**
+
+```{r warning=FALSE}
+library(clustertend)
+
+set.seed(123)
+
+data_std <- data %>% 
+  dplyr::select_if(is.numeric) %>% 
+  scale()  
+clustertend::hopkins(data_std, n=nrow(data_std)-1)
+  
+```
+
+El valor de la prueba de Hopkins es diferente a 0.5, los datos presenta una tendencia de agrupación
+
+**Visual Assessment of Tendency**
+
+```{r}
+renderPlot(
+data_std %>% 
+  dist() %>% 
+  fviz_dist(lab_size = 0.1, show_labels = F)
+)
+```
+
+We can observe a clustering tendency of around three groups
+
+**Algorithm K-MEANS**
+
+```{r}
+set.seed(123)
+(data_km <- kmeans(data_std, centers = 3))
+```
+
+The quality of the data partition is 56.1%, Fairly well..
+
+```{r fig.height=6, fig.width=13}
+data_clus <- data %>% 
+  cbind(clus = as.factor(data_km$cluster))
+
+res_pca2 <-data_clus %>% 
+  PCA(scale.unit = T, graph = F, quali.sup = c('brand', 'class', 'clus'))
+
+catergorical <- data_clus %>% 
+  select_if(is.factor)
+
+sliderInput(inputId = 'contriVar', label = 'Contribution Var', min = 1,
+                max = dim(data_clus)[2], value = dim(data_clus)[2], step = 1)
+
+sliderInput(inputId = 'contriInd', label = 'Contribution Var', min = 1,
+                max = dim(data_clus)[1], value = dim(data_clus)[1],step = 1)
+
+selectInput(inputId = 'categorical',label = 'Select a categorical variable',
+            choices = names(catergorical), selected = names(catergorical)[1])
+
+
+renderPlot(
+fviz_pca_biplot(res_pca2, repel = F, habillage = input$categorical,
+              pointshape = 21, pointsize = 2,
+             addEllipses =TRUE,
+             ellipse.alpha = 0.1,
+             ellipse.type = "norm",
+             geom.ind =c('text',"point"),
+             geom.var = c("text", "arrow"),
+             alpha.var ="contrib",
+             col.var = 'black',
+             select.var = list(contrib = input$contriVar),
+              select.ind = list(contrib = input$contriInd),
+             legend.title = list(fill = "clus"),title ='K groups',
+             )
+)
+```
+
+**K-means algorithm results**
+
+Products belonging to each cluster.
+
+```{r}
+data_km$cluster 
+```
+
+Centroid of each group
+
+```{r}
+data_km$centers
+```
+
+Cluster 1 contains products with the highest values, while Cluster 2 contains products with the lowest values.
+
+Number of samples in each group.
+
+```{r}
+data_km$size
+```
+
+Summary by group
+
+```{r }
+data_clus %>% 
+  dplyr::select_if(is.numeric) %>% 
+  aggregate(list(data_km$clus), mean)
+
+```
+
+```{r fig.height=7, fig.width=8}
+library(flexclust)
+
+selectInput(inputId = 'byclus', label = 'by cluster',choices = c(F,T),selected = T)
+
+set.seed(123)
+renderPlot(
+as.kcca(data_km, data_std) %>%
+  barplot(bycluster=input$byclus)
+)
+
+```
+
+
+Importance of variables in the clustering.
+
+```{r fig.height=15, fig.width=15}
+library(FeatureImpCluster)
+renderPlot(
+as.kcca(data_km, data_std) %>% 
+  FeatureImpCluster(as.data.table(data_std)) %>% 
+  plot()
+)
+```
+
+
+The most important variables belong to Variable B, which refers to physicochemical characteristics measured with instruments related to B.
+
+```{r fig.height=6, fig.width=13}
+renderPlot(
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_B1'))|
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_B2'))|
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_B3'))|
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_B5'))
+)
+```
+
+```{r fig.height=6, fig.width=13}
+renderPlot(
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_A1'))|
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_A2'))|
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_A3'))|
+fviz_cluster(data_km, data_std, choose.vars = c('var_B4', 'var_A5'))
+)
+```
+
+It is also possible to plot variable by variable, facilitating the visualization of which variables better separate the groups.
+
+```{r}
+## select inpu numeric
+catergorical <- data_clus %>% 
+  select_if(is.factor)
+
+numeric <- data_clus %>% 
+  select_if(is.numeric)
+
+
+selectInput(inputId = 'num1',label = 'Select a numeric variable',
+            choices = names(numeric), selected = names(numeric)[1])
+
+## select inpu numeric
+
+selectInput(inputId = 'num2',label = 'Select a numeric variable',
+            choices = names(numeric), selected = names(numeric)[2])
+
+renderPlot(
+fviz_cluster(data_km, data_std, choose.vars = c(input$num1, input$num2))
+
+)
+```
+
+
+```{r message=FALSE}
+data_std_2 <- data_std %>%
+  cbind(clus = as.factor(data_clus$clus)) %>%
+  data.frame()
+```
+
+```{r fig.height=6, fig.width=13, message=F}
+library(GGally)
+renderPlot(
+ggpairs(data_std_2, columns = c("var_B1","var_B2","var_B3","var_B4","var_B5"), aes(col = as.factor(data_clus$clus)))
+)
+```
+
+```{r fig.height=6, fig.width=13, message=F}
+renderPlot(
+ggpairs(data_std_2, columns = c("var_A1","var_A2","var_A3","var_A4","var_A5"), aes(col = as.factor(data_clus$clus)))
+)
+```
+
+
+
+```{r}
+library(plotly)
+renderPlotly(
+ggplotly(data_clus %>% 
+  select(is.numeric) %>%
+  scale() %>%
+  cbind(data_clus[11:length(data_clus)]) %>%
+  tibble::rownames_to_column(var = 'names') %>% 
+  gather(key = 'var', value = 'values',2:11, factor_key = T) %>% 
+  ggplot(aes(x=var, y = values, group = clus, color = clus, label = names)) +
+  stat_summary(geom = 'line', fun = 'mean') +
+  stat_summary(fun = mean, size = 3,
+               geom = "point") +
+  geom_point(size = 0.9)+
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = 'bottom', 
+          axis.text.x = element_text(angle = 90, hjust = 1,size = 8))+
+    labs(title = 'K-Means algorithm representation',
+         subtitle = 'Features of each cluster',
+         x = '', y = 'value') )
+)
+```
+
+
+It is possible to observe that the discrimination of the groups is more evident through the variables measured with instruments related to Type B.
+
+**Measures of stability.**
+
+```{r}
+library(cluster)
+renderPlot(
+silhouette(data_km$cluster, dist(data[1:10])) %>% 
+  plot(cex.names = 0.7, col = 1:3)
+)
+```
+
+```{r}
+rownames(data_clus[9,])
+rownames(data_clus[24,])
+```
+
+In both cluster 1 and cluster 3, there are misclassified samples.
+
+############################################### 
+
+## **Two-way ANOVA**
+
+So far, we have observed some correlations between the measured physicochemical variables and their relationship with the studied products through PCA.
+Additionally, we have clustered the most similar products using K-Means.
+As a competitive intelligence tool, data analysis enables us to understand and evaluate market comparisons more effectively.
+However, we can obtain even more information by developing a predictive model that can forecast the remaining variables using only a few measured variables.
+This approach would streamline processes, save time on measurements, and ultimately reduce costs, leading to increased efficiency.
+
+One option is to select the variables that exhibit the greatest statistical difference between markets and clusters with a 2-ways ANOVA analysis.
+This would make it easier to distinguish a clear separation between them.
+Furthermore, these variables would be used as predictors.
+
+We evaluate which physicochemical characteristic differs the most between clusters and market type (class).
+
+```{r}
+data_clus %>% 
+  group_by(clus, class) %>% 
+  get_summary_stats(var_B4, type = 'mean_sd')
+```
+
+```{r}
+data_long <- data_clus %>% 
+  tibble::rownames_to_column(var = 'names') %>% 
+  gather(key = 'var', value = 'values', 2:11) 
+```
+
+```{r fig.height=12, fig.width=20}
+library(ggpubr)
+renderPlot(
+ggboxplot(data_long, x = 'clus' , y = 'values',
+          color = 'class',add = c("mean", "jitter"),
+            fill = "class", alpha = 0.2) +
+  stat_summary(fun = mean, colour = "black", size = 3,
+               position = position_dodge(width = 0.75),
+               geom = "text", vjust = -0.7, 
+               aes(label = round(..y.., digits = 2), group = class)) +
+  facet_wrap(~var, ncol=2, scales="free")
+)
+```
+
+```{r fig.height=12, fig.width=20}
+library(ggpubr)
+renderPlot(
+ggboxplot(data_long, x = 'class' , y = 'values',
+          color = 'clus',add = c("mean", "jitter"),
+            fill = "clus", alpha = 0.2) +
+  stat_summary(fun = mean, colour = "black", size = 3,
+               position = position_dodge(width = 0.75),
+               geom = "text", vjust = -0.7, 
+               aes(label = round(..y.., digits = 2), group = clus)) +
+  facet_wrap(~var, ncol=2, scales="free")
+)
+```
+
+
+# **Verify assumptions of ANOVA:**
+
+## Normality,
+
+```{r}
+data_clus%>% 
+  select(-brand) %>%
+  #filter(class!='market_2') %>% 
+  dplyr::group_by(class, clus) %>% 
+  shapiro_test(var_A1,var_A2,var_A3,var_A4,var_A5,var_B1,var_B2,var_B3,var_B4,var_B5) %>% 
+  DT::datatable()
+```
+
+```{r}
+data_clus%>% 
+  select(-brand) %>%
+  #filter(class!='market_1') %>% 
+  #filter(clus!=3) %>% 
+  dplyr::group_by(class, clus) %>% 
+  shapiro_test(var_A1,var_A2,var_A3,var_A4,var_A5,var_B1,var_B2,var_B3,var_B4,var_B5) %>% 
+  DT::datatable()
+```
+
+## homogeneity of variance.
+
+
+```{r select_input}
+selectInput(inputId = 'vars', label = 'select variables for levene test',
+                     choices = colnames(data_clus), selected = colnames(data_clus)[1])
+
+
+renderPrint(
+  data_clus %>% 
+  select(-brand) %>% 
+  levene_test(data_clus[,input$vars] ~ data_clus$class*data_clus$clus)  
+)
+```
+
+
+Most of the variables show a normal trend and homogeneity of variance, although some have p-values slightly below 0.05. For this example, we will assume a parametric statistic, and through a two-way ANOVA, we will establish significant statistical differences among the obtained clusters, classes, and measured variables. This way, we can statistically identify which variables better discriminate between the groups.
+
+
+
+```{r}
+## select inpu categorical
+selectInput(inputId = 'cate1',label = 'Select a categorical variable 1',
+            choices = names(catergorical), selected = names(catergorical)[1])
+selectInput(inputId = 'cate2',label = 'Select a categorical variable 2',
+            choices = names(catergorical), selected = names(catergorical)[3])
+
+
+## select inpu numeric
+selectInput(inputId = 'nume1',label = 'Select a numeric variable',
+            choices = names(numeric), selected = names(numeric)[1])
+
+renderPlot({
+  grouped_ggbetweenstats(data = data_clus, x = !!rlang::sym(input$cate1), y = !!rlang::sym(input$nume1), grouping.var = !!rlang::sym(input$cate2),
+                 results.subtitle = F, messages = F, var.equal = T, p.adjust.method = 'holm')
+
+})
+```
+
+
+
+## *Correlation analisys*
+
+
+```{r}
+# library(readxl)
+# library(tidyr)
+# library(dplyr)
+# library(tidyselect)
+# library(tibble)
+# library(rstatix)
+# library(FactoMineR)
+# library(factoextra)
+# library(DT)
+# library(patchwork)
+# library(shiny)
+# library(ggstatsplot)
+# library(plotly)
+```
+
+```{r}
+
+# data <- read.csv('brand_study.csv', sep = ';', dec = '.', header = T, stringsAsFactors = T)
+# data <- column_to_rownames(data, var = 'sample')
+# head(data)
+
+```
+
+
+## Correlation plot
+
+```{r}
+numeric <- data_clus %>% 
+  select_if(is.numeric)
+selectInput(inputId = 'numerical_df',label = 'Select a numeric variable',
+            choices = names(numeric), selected = names(numeric), multiple = T)
+
+
+# Creando DF con lo seleccionado en los select input
+df_interactive <- reactive({
+    cbind(data_clus[input$numerical_df])
+  })
+
+library(corrplot)
+renderPlot(
+df_interactive() %>% 
+  #dplyr::select(-class,-brand) %>% 
+  cor() %>% 
+  corrplot(method = "ellipse",type = "lower", tl.cex = 1,
+           order = "hclust", insig = "pch", tl.col='black',
+           addCoef.col = 'black', number.cex =0.9, number.font = 5,
+           col = COL2('PiYG'))
+)
+```
+
+
+
+
+```{r warning=FALSE}
+numeric <- data %>% 
+  select_if(is.numeric) 
+
+
+selectInput(inputId = 'lm',label = 'Select a numeric variable for LM',
+            choices = names(numeric), selected = names(numeric)[5], multiple = F)
+renderPrint(
+sapply(numeric, function(x) round(summary(lm(x ~ numeric[,c(input$lm)]))$r.squared,2))
+)
+```
+
+For the predictions of the rest variables I will choose the var_B5 for those physicochemical variables type B and var_A5 for those type A as independent variables
+
+
+
+# Linear models for Variables measured with chemical measuring equipment type A
+
+```{r}
+data[26,]
+```
+
+
+
+```{r}
+#var_A5 <- data.frame(var_A5 = 6.2775)
+var_A5 <- data.frame(var_A5 = 1.2783)
+
+model_A1 <- lm(var_A1 ~ var_A5, data = data)
+model_A2 <- lm(var_A2 ~ var_A5, data = data)
+model_A3 <- lm(var_A3 ~ var_A5, data = data)
+model_A4 <- lm(var_A4 ~ var_A5, data = data)
+
+pred_A1 <- predict(model_A1, var_A5)
+pred_A2 <- predict(model_A2, var_A5)
+pred_A3 <- predict(model_A3, var_A5)
+pred_A4 <- predict(model_A4, var_A5)
+```
+
+# Linear models for Variables measured with chemical measuring equipment type B
+
+```{r}
+#var_B5 <- data.frame(var_B5 = 1026.41)
+var_B5 <- data.frame(var_B5 = 306.26)
+model_B1 <- lm(var_B1 ~ var_B5, data = data)
+model_B2 <- lm(var_B2 ~ var_B5, data = data)
+model_B3 <- lm(var_B3 ~ var_B5, data = data)
+model_B4 <- lm(var_B4 ~ var_B5, data = data)
+
+pred_B1 <- predict(model_B1, var_B5)
+pred_B2 <- predict(model_B2, var_B5)
+pred_B3 <- predict(model_B3, var_B5)
+pred_B4 <- predict(model_B4, var_B5)
+```
+
+
+
+
+```{r}
+prediction = cbind(var_A1 = pred_A1,var_A2 = pred_A2, var_A3 = pred_A3,var_A4 = pred_A4,var_A5 = var_A5,
+                   var_B1 = pred_B1,var_B2 = pred_B2,var_B3 = pred_B3,var_B4 = pred_B4,var_B5 = var_B5)
+prediction
+row.names(prediction) <- 'pred'
+```
+
+
+```{r}
+
+original_mean <- attr(data_std, "scaled:center")
+original_sd <- attr(data_std, "scaled:scale")
+
+prediction_sc <- scale(prediction, center = original_mean, scale = original_sd ) %>% 
+  as.data.frame()
+
+clus_pred <- predict(data_km, newdata =prediction_sc)
+prediction <- cbind(prediction, clus = as.factor(clus_pred) )
+
+clus_pred
+```
+
+
+
+```{r}
+data_km$cluster
+```
+
+
+```{r}
+new_data_clus_pred <- data_clus %>% 
+  dplyr::select(-class, -brand) %>% 
+  rbind(prediction)
+```
+
+
+```{r}
+
+selectInput(inputId = 'label',label = 'Labels', multiple = T,
+            choices = c("ind", "ind.sup", "quali", "var", "quanti.sup"), selected = "ind.sup")
+
+selectInput(inputId = 'invisible',label = 'Invisible', multiple = T,
+            choices = c("ind", "ind.sup", "quali", "var", "quanti.sup"), selected = "ind.sup")
+
+res_pca3 <- PCA(new_data_clus_pred, graph = F,
+                quali.sup = 11,
+               ind.sup =30
+               )
+renderPlot(
+fviz_pca_biplot(res_pca3,pointshape = 21, pointsize = 2,
+                habillage = 11, label = c(input$label),
+              invisible = c(input$invisible),
+             addEllipses =TRUE,
+             ellipse.alpha = 0.1,
+             ellipse.type = "norm",
+             alpha.var ="contrib",
+             #col.var = 'black',
+             col.ind.sup = "red",
+             )
+)
+```
+
+
+
+
+
+
+
+
+```{r}
+## data long escalada
+data_long_by_clus_scale <- new_data_clus_pred %>% 
+  select_if(is.numeric) %>%
+  scale() %>%
+  cbind(clus = new_data_clus_pred$clus) %>% data.frame() %>% 
+  tibble::rownames_to_column(var = 'names') %>% 
+  gather(key = 'var', value = 'values',2:11, factor_key = T) %>% 
+  group_by(clus, var) %>% 
+  get_summary_stats(values, type ="mean_sd")
+
+## Prediccion
+prediction_scale_long <- prediction_sc %>% 
+  cbind(clus = as.factor(clus_pred)) %>% 
+  tibble::rownames_to_column(var = 'names') %>% 
+  gather(key = 'var', value = 'values', 2:11) %>% 
+  group_by(clus, var) %>% 
+  get_summary_stats(values, type ="mean")
+
+
+clus_1 <- subset(data_long_by_clus_scale, data_long_by_clus_scale$clus ==1) 
+clus_2 <- subset(data_long_by_clus_scale, data_long_by_clus_scale$clus ==2)
+clus_3 <- subset(data_long_by_clus_scale, data_long_by_clus_scale$clus ==3)
+
+library(plotly)
+
+fig <- plot_ly(
+    type = 'scatterpolar',
+    mode = 'lines',
+    fill = 'toself'
+  ) 
+
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = clus_1$mean,
+  theta =clus_1$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'Clus 1'
+)
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = clus_2$mean,
+  theta =clus_2$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'Clus 2'
+)
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = clus_3$mean,
+  theta =clus_3$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'Clus 3'
+)
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = prediction_scale_long$mean,
+  theta =prediction_scale_long$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'prediction'
+)
+
+fig <- fig %>%
+  layout(
+    polar = list(
+      radialaxis = list(
+        visible = T
+      )
+    )
+  )
+
+renderPlotly(
+fig
+)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

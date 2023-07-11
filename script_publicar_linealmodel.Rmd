@@ -1,0 +1,436 @@
+---
+title: "publication"
+author: "Juan David Marin"
+date: "2023-06-28"
+output: html_notebook
+runtime: shiny
+---
+
+```{r}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(comment = '')
+knitr::opts_chunk$set(message=FALSE)
+knitr::opts_chunk$set(eval = T)
+```
+
+```{r}
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(tidyselect)
+library(tibble)
+library(rstatix)
+library(FactoMineR)
+library(factoextra)
+library(DT)
+library(patchwork)
+library(shiny)
+library(ggstatsplot)
+library(plotly)
+library(GGally)
+library(ggpubr)
+```
+
+```{r}
+
+data <- read.csv('brand_study.csv', sep = ';', dec = '.', header = T, stringsAsFactors = T)
+data <- column_to_rownames(data, var = 'sample')
+head(data)
+
+```
+```{r}
+data_std <- data %>% 
+  dplyr::select_if(is.numeric) %>% 
+  scale()  
+
+set.seed(123)
+data_km <- kmeans(data_std, centers = 3)
+
+data_clus <- data %>% 
+  cbind(clus = as.factor(data_km$cluster))
+```
+
+## Correlation analysis 
+
+
+```{r }
+numeric <- data %>% 
+  select_if(is.numeric) 
+
+
+selectInput(inputId = 'corr',label = 'Select a numeric variable for correlation analysis.',
+            choices = names(numeric), selected = names(numeric)[5], multiple = F)
+
+renderPrint(
+  # p values
+  sapply(numeric, function(x) round(cor.test(x, numeric[,c(input$corr)])$p.value,5))
+)
+renderPrint(
+  # Correlation
+  sapply(numeric, function(x) round(cor.test(x, numeric[,c(input$corr)])$estimate,2))
+)
+```
+
+
+```{r}
+# round(sapply(numeric, function(x) cor.test(x, numeric[,c('var_A5')])$estimate),2)
+```
+Los p valor de las correlaciones entre las variables son menores a 0.05, por lo tanto son estadisticamente distintas de cero, adicional, laas correlaciones son positivas y altas. a exepcion de la variable var_A3
+
+
+## Partial correlation.
+
+```{r}
+
+library(ppcor)
+selectInput(inputId = 'cv1',label = 'Select a variable 1',
+            choices = names(numeric), selected = names(numeric)[5], multiple = F)
+selectInput(inputId = 'cv2',label = 'Select a variable 2',
+            choices = names(numeric), selected = names(numeric)[10], multiple = F)
+selectInput(inputId = 'cv3',label = 'Select a control variable',
+            choices = names(numeric), selected = names(numeric)[3], multiple = F)
+renderPrint(
+  pcor.test(x = numeric[,input$cv1],
+            y = numeric[,input$cv2],
+            z = numeric[,input$cv3])
+)
+```
+
+```{r}
+pcor.test(x = numeric[,'var_A1'],
+            y = numeric[,'var_A2'],
+            z = numeric[,'var_A5'])
+```
+
+
+
+
+## Correlation plot
+
+```{r}
+numeric <- data_clus %>% 
+  select_if(is.numeric)
+selectInput(inputId = 'numerical_df',label = 'Select a numeric variable',
+            choices = names(numeric), selected = names(numeric), multiple = T)
+
+
+# Creando DF con lo seleccionado en los select input
+df_interactive <- reactive({
+    cbind(data_clus[input$numerical_df])
+  })
+
+library(corrplot)
+renderPlot(
+df_interactive() %>% 
+  #dplyr::select(-class,-brand) %>% 
+  cor() %>% 
+  corrplot(method = "ellipse",type = "lower", tl.cex = 1,
+           order = "hclust", insig = "pch", tl.col='black',
+           addCoef.col = 'black', number.cex =0.9, number.font = 5,
+           col = COL2('PiYG'))
+)
+```
+
+
+
+
+
+
+## Lineal models 
+
+```{r warning=FALSE}
+numeric <- data %>% 
+  select_if(is.numeric) 
+
+selectInput(inputId = 'lm',label = 'Select a numeric variable for LM',
+            choices = names(numeric), selected = names(numeric)[5], multiple = F)
+renderPrint(
+sapply(numeric, function(x) round(summary(lm(x ~ numeric[,c(input$lm)]))$r.squared,2))
+)
+
+```
+
+
+
+## Models plots
+
+```{r}
+library(shiny)
+selectInput(inputId = 'lmx',label = 'Select a numeric variable for for x axis',
+            choices = names(numeric), selected = names(numeric)[5], multiple = F)
+selectInput(inputId = 'lmy',label = 'Select a numeric variable for y axis',
+            choices = names(numeric), selected = names(numeric)[1], multiple = F)
+checkboxInput(inputId = 'tf', label = 'Show ellipse', value = F)
+
+renderPlot(
+data_clus %>% 
+  ggscatter(x = input$lmx, y = input$lmy, add = 'reg.line', color = 'clus',
+             palette = "jco", ellipse = input$tf, ellipse.level = 0.95,ellipse.alpha = 0.1,
+            ellipse.border.remove = T,mean.point = input$tf,ellipse.type = "norm",
+            add.params = list(color = "red")) +
+    stat_cor(label.x.npc = "left", label.y.npc = "top", 
+            aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) +
+  stat_regline_equation(label.x.npc = 'center', label.y.npc = 'top')
+)
+```
+
+
+For the predictions of the rest variables I will choose the var_B5 for those physicochemical variables type B and var_A5 for those type A as independent variables
+
+```{r}
+cor(data_clus$var_B2, data_clus$var_A4)
+```
+
+
+```{r}
+summary(lm(data_clus$var_B2 ~ data_clus$var_A4))
+```
+
+
+
+```{r}
+data_clus %>% 
+  ggscatter(x = 'var_B2', y = 'var_A4', add = 'reg.line', color = 'clus',
+            palette = "jco", ellipse = T, ellipse.level = 0.95,ellipse.alpha = 0.1,
+            ellipse.border.remove = T,mean.point = T,ellipse.type = "norm",
+            add.params = list(color = "red")) +
+  stat_cor(label.x.npc = "left", label.y.npc = "top", digits = 4,
+            aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) +
+  stat_regline_equation(label.x.npc = 'center', label.y.npc = 'top')
+```
+
+
+
+
+# Linear models for Variables measured with chemical measuring equipment type A
+
+```{r}
+data[26,]
+```
+
+
+
+```{r}
+#var_A5 <- data.frame(var_A5 = 6.2775)
+var_A5 <- data.frame(var_A5 = 1.4)
+
+model_A1 <- lm(var_A1 ~ var_A5, data = data)
+model_A2 <- lm(var_A2 ~ var_A5, data = data)
+model_A3 <- lm(var_A3 ~ var_A5, data = data)
+model_A4 <- lm(var_A4 ~ var_A5, data = data)
+
+pred_A1 <- predict(model_A1, var_A5)
+pred_A2 <- predict(model_A2, var_A5)
+pred_A3 <- predict(model_A3, var_A5)
+pred_A4 <- predict(model_A4, var_A5)
+```
+
+# Linear models for Variables measured with chemical measuring equipment type B
+
+```{r}
+#var_B5 <- data.frame(var_B5 = 1026.41)
+var_B5 <- data.frame(var_B5 = 295.3)
+model_B1 <- lm(var_B1 ~ var_B5, data = data)
+model_B2 <- lm(var_B2 ~ var_B5, data = data)
+model_B3 <- lm(var_B3 ~ var_B5, data = data)
+model_B4 <- lm(var_B4 ~ var_B5, data = data)
+
+pred_B1 <- predict(model_B1, var_B5)
+pred_B2 <- predict(model_B2, var_B5)
+pred_B3 <- predict(model_B3, var_B5)
+pred_B4 <- predict(model_B4, var_B5)
+```
+
+
+
+
+```{r}
+prediction = cbind(var_A1 = pred_A1,var_A2 = pred_A2, var_A3 = pred_A3,var_A4 = pred_A4,var_A5 = var_A5,
+                   var_B1 = pred_B1,var_B2 = pred_B2,var_B3 = pred_B3,var_B4 = pred_B4,var_B5 = var_B5)
+prediction
+row.names(prediction) <- 'pred'
+```
+
+
+```{r}
+
+original_mean <- attr(data_std, "scaled:center")
+original_sd <- attr(data_std, "scaled:scale")
+
+prediction_sc <- scale(prediction, center = original_mean, scale = original_sd ) %>% 
+  as.data.frame()
+
+clus_pred <- predict(data_km, newdata =prediction_sc)
+prediction <- cbind(prediction, clus = as.factor(clus_pred) )
+
+clus_pred
+```
+
+
+
+```{r}
+data_km$cluster
+```
+
+
+```{r}
+new_data_clus_pred <- data_clus %>% 
+  dplyr::select(-class, -brand) %>% 
+  rbind(prediction)
+```
+
+
+```{r}
+
+selectInput(inputId = 'label',label = 'Labels', multiple = T,
+            choices = c("ind", "ind.sup", "quali", "var", "quanti.sup"), selected = "ind.sup")
+
+selectInput(inputId = 'invisible',label = 'Invisible', multiple = T,
+            choices = c("ind", "ind.sup", "quali", "var", "quanti.sup"), selected = "ind")
+
+res_pca3 <- PCA(new_data_clus_pred, graph = F,
+                quali.sup = 11,
+               ind.sup =30
+               )
+renderPlot(
+fviz_pca_biplot(res_pca3,pointshape = 21, pointsize = 2,
+                habillage = 11, label = c(input$label),
+              invisible = c(input$invisible),
+             addEllipses =TRUE,
+             ellipse.alpha = 0.1,
+             ellipse.type = "norm",
+             alpha.var ="contrib",
+             #col.var = 'black',
+             col.ind.sup = "red",
+             )
+)
+```
+
+
+
+
+
+
+
+
+```{r}
+## data long escalada
+data_long_by_clus_scale <- new_data_clus_pred %>% 
+  select_if(is.numeric) %>%
+  scale() %>%
+  cbind(clus = new_data_clus_pred$clus) %>% data.frame() %>% 
+  tibble::rownames_to_column(var = 'names') %>% 
+  gather(key = 'var', value = 'values',2:11, factor_key = T) %>% 
+  group_by(clus, var) %>% 
+  get_summary_stats(values, type ="mean_sd")
+
+## Prediccion
+prediction_scale_long <- prediction_sc %>% 
+  cbind(clus = as.factor(clus_pred)) %>% 
+  tibble::rownames_to_column(var = 'names') %>% 
+  gather(key = 'var', value = 'values', 2:11) %>% 
+  group_by(clus, var) %>% 
+  get_summary_stats(values, type ="mean")
+
+
+clus_1 <- subset(data_long_by_clus_scale, data_long_by_clus_scale$clus ==1) 
+clus_2 <- subset(data_long_by_clus_scale, data_long_by_clus_scale$clus ==2)
+clus_3 <- subset(data_long_by_clus_scale, data_long_by_clus_scale$clus ==3)
+
+library(plotly)
+
+fig <- plot_ly(
+    type = 'scatterpolar',
+    mode = 'lines',
+    fill = 'toself'
+  ) 
+
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = clus_1$mean,
+  theta =clus_1$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'Clus 1'
+)
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = clus_2$mean,
+  theta =clus_2$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'Clus 2'
+)
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = clus_3$mean,
+  theta =clus_3$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'Clus 3'
+)
+fig <- fig %>% 
+  add_trace(
+  type = 'scatterpolar',
+  mode = 'lines',
+  r = prediction_scale_long$mean,
+  theta =prediction_scale_long$var,
+  mode = 'markers',
+  fill = 'toself',
+  name = 'prediction'
+)
+
+fig <- fig %>%
+  layout(
+    polar = list(
+      radialaxis = list(
+        visible = T
+      )
+    )
+  )
+
+renderPlotly(
+fig
+)
+
+```
+
+
+
+
+```{r}
+#var_A5 <- data.frame(var_A5 = 6.2775)
+var_A5 <- data.frame(var_A5 = 1.4)
+
+model_A1 <- lm(var_A1 ~ var_A5, data = data)
+model_A2 <- lm(var_A2 ~ var_A5, data = data)
+model_A3 <- lm(var_A3 ~ var_A5, data = data)
+model_A4 <- lm(var_A4 ~ var_A5, data = data)
+
+pred_A1 <- predict(model_A1, var_A5)
+pred_A2 <- predict(model_A2, var_A5)
+pred_A3 <- predict(model_A3, var_A5)
+pred_A4 <- predict(model_A4, var_A5)
+```
+
+```{r}
+library(performance)
+model_A <- lm(var_A1 ~ var_A5, data = data)
+r2(model_A)
+check_model(model_A)
+```
+
+
+
+
+
+
+
+

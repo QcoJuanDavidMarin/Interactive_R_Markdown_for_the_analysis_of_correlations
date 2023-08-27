@@ -1,6 +1,9 @@
 # Interactive_R_Markdown_for_the_analysis_of_correlations
 Interactive R Markdown for the analysis of correlations among products in the context of Competitive Intelligence
 
+# [Interactive R Markdown for the analysis of correlations among products in the context of Competitive Intelligence. Part 1](https://medium.com/@qcojuandavidmarin/interactive-r-markdown-for-the-analysis-of-correlations-among-products-in-the-context-of-5b323b98f0d8)
+# [Interactive R Markdown for the analysis of correlations among products in the context of Competitive Intelligence. Part 2](https://medium.com/@qcojuandavidmarin/interactive-r-markdown-for-the-analysis-of-correlations-among-products-in-the-context-of-2070adc5da56)
+
 
 ![gif_1](https://github.com/QcoJuanDavidMarin/Interactive_R_Markdown_for_the_analysis_of_correlations/assets/59380458/6b14c7d5-6410-4f4e-bda1-55d9f1c6fb5c)
 

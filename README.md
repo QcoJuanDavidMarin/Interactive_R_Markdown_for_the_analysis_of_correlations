@@ -1,6 +1,3 @@
-# Interactive_R_Markdown_for_the_analysis_of_correlations
-Interactive R Markdown for the analysis of correlations among products in the context of Competitive Intelligence
-
 # [Interactive R Markdown for the analysis of correlations among products in the context of Competitive Intelligence. Part 1](https://medium.com/@qcojuandavidmarin/interactive-r-markdown-for-the-analysis-of-correlations-among-products-in-the-context-of-5b323b98f0d8)
 # [Interactive R Markdown for the analysis of correlations among products in the context of Competitive Intelligence. Part 2](https://medium.com/@qcojuandavidmarin/interactive-r-markdown-for-the-analysis-of-correlations-among-products-in-the-context-of-2070adc5da56)
 # [Interactive SHINY and STREAMLIT for the analysis of correlations among products in the context of Competitive intelligence, Part 3](https://medium.com/@qcojuandavidmarin/interactive-shiny-and-streamlit-for-the-analysis-of-correlations-among-products-in-the-context-of-6ff113d71185)
